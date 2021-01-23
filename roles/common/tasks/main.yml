@@ -1,0 +1,241 @@
+---
+  # tasks file for hostname
+  # Set the hostname for the Pi
+  # Depends on:
+  #   vars:
+  #       hostname: ""
+  # Should it come from a prompt initially or from a var file?
+  #   
+
+  # Install Prometheus node_exporter
+  # Install log2ram
+  
+  - name: Set the hostname to {{ hostname }}
+    become: yes
+    command: hostnamectl set-hostname "{{ hostname }}"
+    register: set_hostname_status
+    tags:
+      - configuration
+      - common   
+   
+  - name: Change hostname to {{ hostname }} in hosts file
+    lineinfile:
+      path: /etc/hosts
+      regexp: '^127\.0\.1\.1'
+      line: "127.0.1.1       {{ hostname }}"  
+    register: set_hostname_file_status  
+    tags:
+      - configuration
+      - common    
+  
+  - name: Set timezone to {{ timezone }}
+    become: yes
+    command: timedatectl set-timezone {{ timezone }}
+    register: set_timezone_status
+    tags:
+      - configuration
+      - common  
+
+  - name: Set the locale to {{ locale }} via raspi-config
+    become: yes
+    command: raspi-config nonint do_change_locale {{ locale }}
+    register: set_locale_status
+    tags:
+      - configuration
+      - common  
+  
+    # Check this out it generates error on the PI
+  - name: Set the keyboard layout to {{ keyboard_layout }} via raspi-config
+    become: yes
+    command: raspi-config nonint do_configure_keyboard {{ keyboard_layout }}  
+    register: set_keyboard_status  
+    tags:
+      - configuration
+      - common  
+
+  - name: Add new user - {{ username }} - to the Raspberry Pi
+    user:
+      name: "{{ username }}"    
+      password: "{{ passwd | password_hash('sha512') }}"
+      update_password: on_create
+      comment: "New user added by BBD"
+    register: add_user_status  
+    become: yes  
+  
+  - name: Add the ssh key to the {{ username }} home directory from local files
+    authorized_key:
+      user: "{{ username }}"
+      state: present
+      key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"       
+    register: add_sshkey_status
+    become: yes  
+
+  - name: Add the new user - {{ username }} - to the relevant groups  
+    become: yes  
+    command:
+      cmd: "usermod -aG adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,netdev,gpio,i2c,spi {{ username }}" 
+    register: add_user_sudoer_status  
+    tags:
+      - configuration
+      - user        
+
+  - name: Copy .bash_aliases file to {{ username }} home directory  
+    copy:
+      backup: yes
+      src: ./files/bash_aliases
+      dest: "/home/{{ username }}/.bash_aliases"      
+      owner: "{{ username }}"
+      group: "{{ username }}"
+      mode: '644'
+    register: add_bashaliases_status  
+    tags:
+      - configuration
+      - user     
+  
+  - name: Updating the pi user password
+    become: yes
+    user:
+      name: pi    
+      password: "{{ pi_password | password_hash('sha512') }}"
+      update_password: always      
+    register: updated_pi_password  
+    tags:
+      - configuration
+      - user        
+
+  - debug: var=updated_pi_password
+  
+  - name: Installing git
+    become: yes
+    apt:
+      name: git
+    tags:
+      - configuration
+      - system      
+    register: add_git_status
+
+  - name: Installing figlet
+    become: yes
+    apt:
+      name: figlet   
+    tags:
+      - configuration
+      - user      
+    register: add_figlet_status
+
+  - name: Installing unattended upgrades
+    become: yes
+    apt: 
+      name: unattended-upgrades    
+    register: add_unattendedupgrades_status
+
+  - debug: var=add_unattendedupgrades_status    
+
+  - name: Deploy the unattended upgrades configurations files
+    become: yes
+    copy:
+      src: ./files/20auto-upgrades
+      dest: /etc/apt/apt.conf.d/20auto-upgrades
+      owner: root
+      group: root
+      mode: '755'  
+    register: deploy_unattendedupgrades_status  
+   
+  - debug: var=deploy_unattendedupgrades_status
+
+  - name: deploy the MOTD files to /etc/update-motd.d
+    become: yes
+    copy:
+      src: ./files/{{ item }}
+      dest: /etc/update-motd.d
+      owner: root
+      group: root
+      mode: '755'  
+    with_items:
+      - 10-uname
+      - 20-sysinfo
+      - 99-distroinfo    
+    register: deploy_motd_status  
+    tags:
+      - configuration
+      - user   
+
+  - name: Set wlan0 power save to off for RPI zeros
+    become: yes
+    blockinfile:
+      path: /etc/rc.local
+      state: present
+      insertbefore: 'exit 0'
+      block: |
+        # Set wlan0 power save to off
+        /sbin/iw dev wlan0 set power_save off        
+    register: turn_powersave_off     
+    when: rpi_device_type == "9000c1"     
+    tags:
+      - configuration    
+      - rpi_zero     
+
+  - debug: var=turn_powersave_off   
+  
+  - name: Set RPI device model in facts file for all RPI's
+    become: yes
+    blockinfile:
+      path: /etc/ansible/facts.d/rpi.fact
+      create: yes
+      state: present
+      insertbefore: 'EOF'
+      block: |
+        [general]
+        rpi_device_type={{rpi_device_type}}
+        rpi_device_model={{rpi_device_model}}
+        rpi_device_hardware={{rpi_device_hardware}}   
+        rpi_device_serial={{rpi_device_serial}}            
+    register: create_fact_file                  
+    tags:
+      - configuration 
+
+  # Disable wifi on servers that doesn't need it
+  - name: Disable wifi
+    become: yes
+    blockinfile:
+      path: 
+        /boot/config.txt
+      create: hes
+      state: present
+      insertbefore: 'EOF'
+      block: |
+        # Disable Wifi
+        dtoverlay=pi3-disable-wifi
+    register: disabled_wifi    
+    when: rolename == "kubernetes"  
+    tags:
+      - configuration
+      - kubernetes  
+
+  # Disable bluetooth on servers that doesn't need it
+  - name: Disable bluetooth
+    become: yes
+    blockinfile:
+      path: 
+        /boot/config.txt
+      create: hes
+      state: present
+      insertbefore: 'EOF'
+      block: |
+        # Disable Bluetooth
+        dtoverlay=pi3-disable-bt
+    register: disabled_wifi    
+    when: rolename == "kubernetes"  
+    tags:
+      - configuration
+      - kubernetes    
+
+  - name: Reboot {{ hostname }} immediately.     
+    become: yes
+    shell: "sleep 5 && reboot"
+    async: 1
+    poll: 0
+    register: final_reboot  
+
+  - debug: var=final_reboot     
+

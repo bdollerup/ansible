@@ -1,0 +1,7 @@
+# Network setup
+network_gateway: 192.168.0.1
+mqtt_address: 192.168.0.11
+mqtt_port: 1883
+
+#Ansible set
+ansible_python_interpreter: "/usr/bin/python3"
