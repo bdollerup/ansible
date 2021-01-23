@@ -1,0 +1,45 @@
+# All servers
+[all]
+
+[raspian_devices:children]
+raspian_clients
+raspian_srvrs
+
+[raspian_clients:children]
+retropies
+dashboard_srvrs
+
+# All Raspian servers
+[raspian_srvrs:children]
+k3s_srvrs
+file_srvrs
+dns_srvrs
+vpn_srvrs
+monitor_srvrs
+
+# All k3s (kubernetes) servers
+[k3s_srvrs:children]
+k3s_srvrs_mstr
+k3s_srvrs_wrkrs
+
+# All k3s (kubernetes) master servers
+[k3s_srvrs_mstr]
+k3s-mstr-01
+
+# All k3s (kubernetes) worker servers
+[k3s_srvrs_wrkrs]
+k3s-wrkr-01
+k3s-wrkr-02
+k3s-wrkr-03
+
+# All Kubernetes file servers
+[file_srvrs]
+k8s-nfssrvr-01
+
+[monitor_srvrs]
+monitor-01
+monitor-02
+monitor-03
+
+[new_pis]
+raspberrypi

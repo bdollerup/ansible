@@ -1,0 +1,94 @@
+---
+
+# There are two roles supported presently: kubernetes and monitor
+# 
+  - name: Setting up a new raspberry pi host
+    hosts: raspberrypi
+    become: yes
+    gather_facts: yes
+    pre_tasks:
+      - name: Updating apt cache 
+        apt:        
+          cache_valid_time: 3600
+          upgrade: yes
+
+      - name: Reboot {{ hostname }}        
+        reboot:
+          reboot_timeout: 90
+
+      - name: Get revision for {{ hostname }}     
+        become: yes
+        shell: "cat /proc/cpuinfo | grep \"Revision\" | awk '{print $3}'"
+        register: device_revision  
+
+      - name: Get model name for {{ hostname }}     
+        become: yes
+        shell: "cat /proc/cpuinfo | grep \"Model\" | awk '{print $3 \" \" $4 \" \" $5 \" \" $6 \" \" $7 \" \" $8}'"
+        register: device_name  
+ 
+      - name: Set RPI device type for {{ hostname }} as fact        
+        set_fact:
+          rpi_device_type: " {{ device_revision.stdout }}"       
+      
+      - debug: var=rpi_device_type            
+
+      - name: Set RPI device model for {{ hostname }} as fact        
+        set_fact:
+          rpi_device_model: " {{ device_name.stdout }}"
+      
+      - debug: var=rpi_device_model                    
+
+      - name: Get hardware information for {{ hostname }}  
+        become: yes
+        shell: "cat /proc/cpuinfo | grep \"Hardware\" | awk '{print $3}'" 
+        register: device_hardware
+
+      - debug: var=device_hardware
+
+      - name: Get serial number for {{ hostname }}  
+        become: yes
+        shell: "cat /proc/cpuinfo | grep \"Serial\" | awk '{print $3}'" 
+        register: device_serial  
+                                   
+      - debug: var=device_serial
+      
+      - name: Lookup IP address for {{ hostname }}
+        set_fact:
+          host_ip_addr: "{{ item.value.ip }}"
+        loop: "{{ lookup('dict', host_address_mapping) }}"  
+        when: "hostname in item.key"  
+
+      - debug: var=host_ip_addr
+      
+    vars_files:
+      - my_vault.yml          
+
+    vars:      
+      wifi_country: "DK"
+      locale: "en_US.UTF-8"
+      keyboard_layout: "dk"
+      timezone: Europe/Copenhagen
+      pi_password: "{{ lookup('password', '/tmp/' + hostname + '/users/pi/passwordfile chars=ascii_letters') }}"
+  
+    roles:
+      - common  
+
+    tasks:            
+      - debug: var=pi_password
+      - debug: var=hostname 
+      - debug: var=device_revision
+      - debug:
+          msg: "Host IP Address is {{ host_ip_addr }}" 
+          
+    vars_prompt:
+      - name: rolename
+        prompt: "Please provide the role for this device"
+        private: no
+      
+      - name: username
+        prompt: Please enter the name of the default user  
+        private: no
+
+      - name: hostname
+        prompt: "please enter a hostname for your new device"
+        private: no      
